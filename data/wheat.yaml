@@ -1,0 +1,4 @@
+train: /workspace/15_raid/hongrui/eccv2020_workshop/global-wheat-detection/wheat_dataset/images/train/
+val: /workspace/15_raid/hongrui/eccv2020_workshop/global-wheat-detection/wheat_dataset/images/validation/
+nc: 1
+names: ['wheat_head']
