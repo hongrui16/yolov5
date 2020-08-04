@@ -14,11 +14,13 @@ from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
 from utils.general import check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box
 from utils.torch_utils import select_device, load_classifier, time_synchronized
-
+import pandas as pd
 
 def detect(save_img=False):
     out, source, weights, view_img, save_txt, imgsz = \
         opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size
+    save_submission = opt.save_submission
+
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
 
     # Initialize
@@ -59,6 +61,9 @@ def detect(save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
+
+    submission = []
+
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -77,6 +82,14 @@ def detect(save_img=False):
         # Apply Classifier
         if classify:
             pred = apply_classifier(pred, modelc, img, im0s)
+
+        prediction_string = []
+
+        if path.find('/') >= 0:
+            path_temp = path.split('/')[-1]
+        else:
+            path_temp = path
+        img_id = path_temp.split('.')[0]
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
@@ -100,6 +113,16 @@ def detect(save_img=False):
 
                 # Write results
                 for *xyxy, conf, cls in det:
+                    if save_submission:
+                        xmin = int(xyxy[0])
+                        ymin = int(xyxy[1])
+                        xmax = int(xyxy[2])
+                        ymax = int(xyxy[3])
+                        b_height = ymax - ymin
+                        b_width = xmax - xmin
+                        prediction_string.append(f"{conf} {xmin} {ymin} {b_width} {b_height}")
+                        
+
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         with open(txt_path + '.txt', 'a') as f:
@@ -108,7 +131,8 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = '%s %.2f' % (names[int(cls)], conf)
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
-
+            prediction_string = " ".join(prediction_string)            
+            submission.append([img_id, prediction_string])
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
@@ -134,7 +158,12 @@ def detect(save_img=False):
                         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
                     vid_writer.write(im0)
-
+    submission_file = 'submission.csv'
+    if save_submission:
+        if os.path.exists(submission_file):
+            os.remove(submission_file)
+        sample_submission = pd.DataFrame(submission, columns=["image_id","PredictionString"])
+        sample_submission.to_csv(submission_file, index=False)
     if save_txt or save_img:
         print('Results saved to %s' % os.getcwd() + os.sep + out)
         if platform == 'darwin' and not opt.update:  # MacOS
@@ -158,6 +187,7 @@ if __name__ == '__main__':
     parser.add_argument('--agnostic-nms', action='store_true', help='class-agnostic NMS')
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
+    parser.add_argument('--save_submission', action='store_true', help='save submission file')
     opt = parser.parse_args()
     print(opt)
 
